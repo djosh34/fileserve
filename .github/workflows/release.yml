@@ -1,0 +1,42 @@
+name: Release
+on:
+  push:
+    tags: ['v0.1.0']
+permissions:
+  contents: write
+  packages: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.2'
+          cache: false
+      - name: Build Linux binaries
+        run: |
+          mkdir dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/fileserve-linux-amd64 .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o dist/fileserve-linux-arm64 .
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/fileserve-linux-amd64 dist/fileserve-linux-arm64 --title "$GITHUB_REF_NAME" --notes "Minimal mTLS file server. Linux amd64 and arm64 binaries; CGO_ENABLED=0. Image: ghcr.io/djosh34/fileserve:$GITHUB_REF_NAME"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push scratch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/djosh34/fileserve:v0.1.0
+            ghcr.io/djosh34/fileserve:latest
+          provenance: false
