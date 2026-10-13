@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -49,20 +50,31 @@ func TestCLIAndSetup(t *testing.T) {
 	cert, key := pki.issue(t, "server", "localhost", x509.ExtKeyUsageServerAuth)
 	data := filepath.Join(t.TempDir(), "data")
 	mustWrite(t, data, []byte("hello"))
+	fifo := filepath.Join(filepath.Dir(data), "fifo")
+	if err := syscall.Mkfifo(fifo, 0600); err != nil {
+		t.Fatal(err)
+	}
 	args := []string{"--allow", "alice", "--file", data, "--cacert", pki.caPath, "--cert", cert, "--key", key, "--listen", "bad address"}
 	for _, test := range []struct {
 		index       int
 		value, want string
 	}{
 		{1, "alice,", "--allow"}, {3, filepath.Dir(data), "regular file"},
-		{3, data + "missing", "open file"}, {5, data, "no certificates"},
+		{3, fifo, "regular file"}, {3, data + "missing", "stat file"}, {5, data, "no certificates"},
 		{5, data + "missing", "read client CA"}, {7, data, "load server"},
 		{9, data, "load server"}, {11, "bad address", "address"},
 	} {
 		copyArgs := append([]string(nil), args...)
 		copyArgs[test.index] = test.value
-		if err := run(copyArgs, io.Discard); err == nil || !strings.Contains(err.Error(), test.want) {
-			t.Errorf("%v: %v (want %s)", copyArgs, err, test.want)
+		done := make(chan error, 1)
+		go func() { done <- run(copyArgs, io.Discard) }()
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Errorf("%v: %v (want %s)", copyArgs, err, test.want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("startup validation blocked for %v", copyArgs)
 		}
 	}
 }

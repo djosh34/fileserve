@@ -49,6 +49,13 @@ func run(args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	info, err := os.Stat(*path)
+	if err != nil {
+		return fmt.Errorf("stat file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("--file must be a regular file")
+	}
 	file, err := os.Open(*path)
 	if err != nil {
 		return fmt.Errorf("open file: %w", err)
@@ -59,7 +66,7 @@ func run(args []string, stderr io.Writer) error {
 			logger.Printf("close file: %v", err)
 		}
 	}()
-	info, err := file.Stat()
+	info, err = file.Stat()
 	if err != nil {
 		return fmt.Errorf("stat file: %w", err)
 	}
